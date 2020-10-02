@@ -59,6 +59,7 @@ type OpenidClientAttributes struct {
 	AccessTokenLifespan                 string             `json:"access.token.lifespan"`
 	LoginTheme                          string             `json:"login_theme"`
 	FromClient                          string             `json:"fromClient"`
+	FromTenant                          string             `json:"fromTenant"`
 }
 
 type OpenidAuthenticationFlowBindingOverrides struct {
