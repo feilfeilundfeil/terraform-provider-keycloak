@@ -184,6 +184,10 @@ func resourceKeycloakOpenidClient() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
+			"from_tenant": {
+				Type:     schema.TypeString,
+				Optional: true,
+			},
 		},
 	}
 }
@@ -242,6 +246,7 @@ func getOpenidClientFromData(data *schema.ResourceData) (*keycloak.OpenidClient,
 			AccessTokenLifespan:                 data.Get("access_token_lifespan").(string),
 			LoginTheme:                          data.Get("login_theme").(string),
 			FromClient:                          data.Get("from_client").(string),
+			FromTenant:                          data.Get("from_tenant").(string),
 		},
 		ValidRedirectUris: validRedirectUris,
 		WebOrigins:        webOrigins,
@@ -329,6 +334,7 @@ func setOpenidClientData(keycloakClient *keycloak.KeycloakClient, data *schema.R
 	data.Set("access_token_lifespan", client.Attributes.AccessTokenLifespan)
 	data.Set("login_theme", client.Attributes.LoginTheme)
 	data.Set("from_client", client.Attributes.FromClient)
+	data.Set("from_tenant", client.Attributes.FromTenant)
 
 	if client.AuthorizationServicesEnabled {
 		data.Set("resource_server_id", client.Id)
