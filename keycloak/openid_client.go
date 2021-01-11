@@ -20,6 +20,7 @@ type OpenidClientSecret struct {
 
 type OpenidClientAuthorizationSettings struct {
 	PolicyEnforcementMode         string `json:"policyEnforcementMode,omitempty"`
+	DecisionStrategy              string `json:"decisionStrategy,omitempty"`
 	AllowRemoteResourceManagement bool   `json:"allowRemoteResourceManagement,omitempty"`
 	KeepDefaults                  bool   `json:"-"`
 }
@@ -60,6 +61,10 @@ type OpenidClientAttributes struct {
 	LoginTheme                          string             `json:"login_theme"`
 	FromClient                          string             `json:"fromClient"`
 	FromTenant                          string             `json:"fromTenant"`
+	ClientOfflineSessionIdleTimeout     string             `json:"client.offline.session.idle.timeout,omitempty"`
+	ClientOfflineSessionMaxLifespan     string             `json:"client.offline.session.max.lifespan,omitempty"`
+	ClientSessionIdleTimeout            string             `json:"client.session.idle.timeout,omitempty"`
+	ClientSessionMaxLifespan            string             `json:"client.session.max.lifespan,omitempty"`
 }
 
 type OpenidAuthenticationFlowBindingOverrides struct {

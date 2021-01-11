@@ -35,27 +35,27 @@ func (keycloakClient *KeycloakClient) groupParentId(group *Group) (string, error
 	}
 
 	var parentGroup Group
-	if findParentGroup(*group, groups, parentGroup) {
-		return parentGroup.Id, nil
+	if parentGroupId, found := findParentGroup(*group, groups, parentGroup); found {
+		return parentGroupId, nil
 	}
 
 	// maybe panic here?  this should never happen
 	return "", fmt.Errorf("unable to determine parent ID for group with path %s", group.Path)
 }
 
-func findParentGroup(group Group, ingroups []*Group, parentGroup Group) bool {
+func findParentGroup(group Group, ingroups []*Group, parentGroup Group) (string, bool) {
 	for _, grp := range ingroups {
 		if grp.Id == group.Id {
-			return true
+			return parentGroup.Id, true
 		}
 		if strings.HasPrefix(group.Path, grp.Path+"/") {
-			parentGroup = *grp
-			if findParentGroup(group, grp.SubGroups, parentGroup) {
-				return true
+
+			if parentGroupId, found := findParentGroup(group, grp.SubGroups, *grp); found {
+				return parentGroupId, found
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 func (keycloakClient *KeycloakClient) ValidateGroupMembers(usernames []interface{}) error {
@@ -145,8 +145,8 @@ func (keycloakClient *KeycloakClient) GetGroupByName(realmId, name string) (*Gro
 
 	// The search may return more than 1 result even if there is a group exactly matching the search string
 	groupsPtr := make([]*Group, len(groups))
-	for i, group := range groups {
-		groupsPtr[i] = &group
+	for i := range groups {
+		groupsPtr[i] = &groups[i]
 	}
 	group := getGroupByDFS(name, groupsPtr)
 	if group != nil {
