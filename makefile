@@ -6,6 +6,9 @@ MAKEFLAGS += --silent
 
 VERSION=$$(git describe --tags)
 
+NAME=keycloak
+BINARY=terraform-provider-${NAME}_${VERSION}
+
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o terraform-provider-keycloak_$(VERSION)
 
@@ -41,3 +44,14 @@ vet:
 
 user-federation-example:
 	cd custom-user-federation-example && ./gradlew shadowJar
+
+release:
+	mkdir -p ${NAME}/${VERSION}/linux_amd64
+	mkdir -p ${NAME}/${VERSION}/windows_amd64
+	mkdir -p ${NAME}/${VERSION}/darwin_amd64
+	GOOS=linux GOARCH=amd64 go build -o ${BINARY}
+	mv ${BINARY} ${NAME}/${VERSION}/linux_amd64
+	GOOS=windows GOARCH=amd64 go build -o ${BINARY}
+	mv ${BINARY} ${NAME}/${VERSION}/windows_amd64
+	GOOS=darwin GOARCH=amd64 go build -o ${BINARY}
+	mv ${BINARY} ${NAME}/${VERSION}/darwin_amd64
