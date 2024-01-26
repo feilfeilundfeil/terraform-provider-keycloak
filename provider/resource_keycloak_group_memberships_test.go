@@ -35,6 +35,24 @@ func TestAccKeycloakGroupMemberships_basic(t *testing.T) {
 	})
 }
 
+func TestAccKeycloakGroupMemberships_basicUserWithBackslash(t *testing.T) {
+	t.Parallel()
+
+	groupName := acctest.RandomWithPrefix("tf-acc")
+	username := acctest.RandString(5) + `\\` + acctest.RandString(5)
+
+	resource.Test(t, resource.TestCase{
+		ProviderFactories: testAccProviderFactories,
+		PreCheck:          func() { testAccPreCheck(t) },
+		Steps: []resource.TestStep{
+			{
+				Config: testKeycloakGroupMemberships_basic(groupName, username),
+				Check:  testAccCheckUserBelongsToGroup("keycloak_group_memberships.group_members", strings.ReplaceAll(username, `\\`, `\`)),
+			},
+		},
+	})
+}
+
 func TestAccKeycloakGroupMemberships_moreThan100members(t *testing.T) {
 	t.Parallel()
 
@@ -161,14 +179,14 @@ func TestAccKeycloakGroupMemberships_authoritativeAdd(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					groupsWithName, err := keycloakClient.ListGroupsWithName(testAccRealm.Realm, groupName)
+					groupsWithName, err := keycloakClient.ListGroupsWithName(testCtx, testAccRealm.Realm, groupName)
 					if err != nil {
 						t.Fatal(err)
 					}
 
 					userToManuallyRemove := usersInGroup[acctest.RandIntRange(0, len(usersInGroup)-1)]
 
-					err = keycloakClient.RemoveUsersFromGroup(testAccRealm.Realm, groupsWithName[0].Id, []interface{}{userToManuallyRemove})
+					err = keycloakClient.RemoveUsersFromGroup(testCtx, testAccRealm.Realm, groupsWithName[0].Id, []interface{}{userToManuallyRemove})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -212,12 +230,12 @@ func TestAccKeycloakGroupMemberships_authoritativeRemove(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					groupsWithName, err := keycloakClient.ListGroupsWithName(testAccRealm.Realm, groupName)
+					groupsWithName, err := keycloakClient.ListGroupsWithName(testCtx, testAccRealm.Realm, groupName)
 					if err != nil {
 						t.Fatal(err)
 					}
 
-					err = keycloakClient.AddUsersToGroup(testAccRealm.Realm, groupsWithName[0].Id, []interface{}{userToManuallyAdd})
+					err = keycloakClient.AddUsersToGroup(testCtx, testAccRealm.Realm, groupsWithName[0].Id, []interface{}{userToManuallyAdd})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -249,12 +267,12 @@ func TestAccKeycloakGroupMemberships_noImportNeeded(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					groupsWithName, err := keycloakClient.ListGroupsWithName(testAccRealm.Realm, groupName)
+					groupsWithName, err := keycloakClient.ListGroupsWithName(testCtx, testAccRealm.Realm, groupName)
 					if err != nil {
 						t.Fatal(err)
 					}
 
-					err = keycloakClient.AddUsersToGroup(testAccRealm.Realm, groupsWithName[0].Id, []interface{}{username})
+					err = keycloakClient.AddUsersToGroup(testCtx, testAccRealm.Realm, groupsWithName[0].Id, []interface{}{username})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -317,7 +335,7 @@ func TestAccKeycloakGroupMemberships_createAfterManualDestroy(t *testing.T) {
 			},
 			{
 				PreConfig: func() {
-					err := keycloakClient.DeleteGroup(testAccRealm.Realm, *groupId)
+					err := keycloakClient.DeleteGroup(testCtx, testAccRealm.Realm, *groupId)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -344,7 +362,7 @@ func testAccGetUsersInGroupFromGroupMembershipsState(resourceName string, s *ter
 		groupId = rs.Primary.ID
 	}
 
-	return keycloakClient.GetGroupMembers(realmId, groupId)
+	return keycloakClient.GetGroupMembers(testCtx, realmId, groupId)
 }
 
 func testAccCheckUserBelongsToGroup(resourceName, user string) resource.TestCheckFunc {
@@ -425,7 +443,9 @@ resource "keycloak_group_memberships" "group_members" {
 }
 
 func testKeycloakGroupMemberships_moreThan100members(group string) string {
+	username := acctest.RandomWithPrefix("tf-acc")
 	count := 110
+
 	return fmt.Sprintf(`
 data "keycloak_realm" "realm" {
 	realm = "%s"
@@ -440,7 +460,7 @@ resource "keycloak_user" "users" {
 	count = %d
 
 	realm_id = data.keycloak_realm.realm.id
-	username = "terraform-user-${count.index}"
+	username = "%s-${count.index}"
 }
 
 resource "keycloak_group_memberships" "group_members" {
@@ -450,7 +470,7 @@ resource "keycloak_group_memberships" "group_members" {
 	members = keycloak_user.users.*.username
 }
 
-        `, testAccRealm.Realm, group, count)
+        `, testAccRealm.Realm, group, count, username)
 }
 
 func testKeycloakGroupMemberships_updateGroupForceNew(groupOne, groupTwo, username, currentGroup string) string {

@@ -1,20 +1,30 @@
 package provider
 
 import (
+	"context"
 	"fmt"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/validation"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
+	"reflect"
 	"strings"
 )
+
+var syncModes = []string{
+	"IMPORT",
+	"FORCE",
+	"LEGACY",
+}
 
 type identityProviderDataGetterFunc func(data *schema.ResourceData) (*keycloak.IdentityProvider, error)
 type identityProviderDataSetterFunc func(data *schema.ResourceData, identityProvider *keycloak.IdentityProvider) error
 
 func resourceKeycloakIdentityProvider() *schema.Resource {
 	return &schema.Resource{
-		Delete: resourceKeycloakIdentityProviderDelete,
+		DeleteContext: resourceKeycloakIdentityProviderDelete,
 		Importer: &schema.ResourceImporter{
-			State: resourceKeycloakIdentityProviderImport,
+			StateContext: resourceKeycloakIdentityProviderImport,
 		},
 		Schema: map[string]*schema.Schema{
 			"alias": {
@@ -89,12 +99,38 @@ func resourceKeycloakIdentityProvider() *schema.Resource {
 				Default:     "",
 				Description: "Alias of authentication flow, which is triggered after each login with this identity provider. Useful if you want additional verification of each user authenticated with this identity provider (for example OTP). Leave this empty if you don't want any additional authenticators to be triggered after login with this identity provider. Also note, that authenticator implementations must assume that user is already set in ClientSession as identity provider already set it.",
 			},
+			// all schema values below this point will be configuration values that are shared among all identity providers
+			"extra_config": {
+				Type:             schema.TypeMap,
+				Optional:         true,
+				ValidateDiagFunc: validateExtraConfig(reflect.ValueOf(&keycloak.IdentityProviderConfig{}).Elem()),
+			},
+			"gui_order": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "",
+				Description: "GUI Order",
+			},
+			"sync_mode": {
+				Type:         schema.TypeString,
+				Optional:     true,
+				Default:      "",
+				ValidateFunc: validation.StringInSlice(syncModes, false),
+				Description:  "Sync Mode",
+			},
 		},
 	}
 }
 
-func getIdentityProviderFromData(data *schema.ResourceData) (*keycloak.IdentityProvider, error) {
-	rec := &keycloak.IdentityProvider{
+func getIdentityProviderFromData(data *schema.ResourceData) (*keycloak.IdentityProvider, *keycloak.IdentityProviderConfig) {
+	// some identity provider config is shared among all identity providers, so this default config will be used as a base to merge extra config into
+	defaultIdentityProviderConfig := &keycloak.IdentityProviderConfig{
+		GuiOrder:    data.Get("gui_order").(string),
+		SyncMode:    data.Get("sync_mode").(string),
+		ExtraConfig: getExtraConfigFromData(data),
+	}
+
+	return &keycloak.IdentityProvider{
 		Realm:                     data.Get("realm").(string),
 		Alias:                     data.Get("alias").(string),
 		DisplayName:               data.Get("display_name").(string),
@@ -107,12 +143,12 @@ func getIdentityProviderFromData(data *schema.ResourceData) (*keycloak.IdentityP
 		FirstBrokerLoginFlowAlias: data.Get("first_broker_login_flow_alias").(string),
 		PostBrokerLoginFlowAlias:  data.Get("post_broker_login_flow_alias").(string),
 		InternalId:                data.Get("internal_id").(string),
-	}
-	return rec, nil
+	}, defaultIdentityProviderConfig
 }
 
-func setIdentityProviderData(data *schema.ResourceData, identityProvider *keycloak.IdentityProvider) error {
+func setIdentityProviderData(data *schema.ResourceData, identityProvider *keycloak.IdentityProvider) {
 	data.SetId(identityProvider.Alias)
+
 	data.Set("internal_id", identityProvider.InternalId)
 	data.Set("realm", identityProvider.Realm)
 	data.Set("alias", identityProvider.Alias)
@@ -125,19 +161,23 @@ func setIdentityProviderData(data *schema.ResourceData, identityProvider *keyclo
 	data.Set("trust_email", identityProvider.TrustEmail)
 	data.Set("first_broker_login_flow_alias", identityProvider.FirstBrokerLoginFlowAlias)
 	data.Set("post_broker_login_flow_alias", identityProvider.PostBrokerLoginFlowAlias)
-	return nil
+
+	// identity provider config
+	data.Set("gui_order", identityProvider.Config.GuiOrder)
+	data.Set("sync_mode", identityProvider.Config.SyncMode)
+	setExtraConfigData(data, identityProvider.Config.ExtraConfig)
 }
 
-func resourceKeycloakIdentityProviderDelete(data *schema.ResourceData, meta interface{}) error {
+func resourceKeycloakIdentityProviderDelete(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	keycloakClient := meta.(*keycloak.KeycloakClient)
 
 	realm := data.Get("realm").(string)
 	alias := data.Get("alias").(string)
 
-	return keycloakClient.DeleteIdentityProvider(realm, alias)
+	return diag.FromErr(keycloakClient.DeleteIdentityProvider(ctx, realm, alias))
 }
 
-func resourceKeycloakIdentityProviderImport(d *schema.ResourceData, _ interface{}) ([]*schema.ResourceData, error) {
+func resourceKeycloakIdentityProviderImport(_ context.Context, d *schema.ResourceData, _ interface{}) ([]*schema.ResourceData, error) {
 	parts := strings.Split(d.Id(), "/")
 
 	if len(parts) != 2 {
@@ -151,46 +191,51 @@ func resourceKeycloakIdentityProviderImport(d *schema.ResourceData, _ interface{
 	return []*schema.ResourceData{d}, nil
 }
 
-func resourceKeycloakIdentityProviderCreate(getIdentityProviderFromData identityProviderDataGetterFunc, setDataFromIdentityProvider identityProviderDataSetterFunc) func(data *schema.ResourceData, meta interface{}) error {
-	return func(data *schema.ResourceData, meta interface{}) error {
+func resourceKeycloakIdentityProviderCreate(getIdentityProviderFromData identityProviderDataGetterFunc, setDataFromIdentityProvider identityProviderDataSetterFunc) func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	return func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
 		keycloakClient := meta.(*keycloak.KeycloakClient)
 		identityProvider, err := getIdentityProviderFromData(data)
-		if err = keycloakClient.NewIdentityProvider(identityProvider); err != nil {
-			return err
+		if err != nil {
+			return diag.FromErr(err)
+		}
+
+		if err = keycloakClient.NewIdentityProvider(ctx, identityProvider); err != nil {
+			return diag.FromErr(err)
 		}
 		if err = setDataFromIdentityProvider(data, identityProvider); err != nil {
-			return err
+			return diag.FromErr(err)
 		}
-		return resourceKeycloakIdentityProviderRead(setDataFromIdentityProvider)(data, meta)
+		return resourceKeycloakIdentityProviderRead(setDataFromIdentityProvider)(ctx, data, meta)
 	}
 }
 
-func resourceKeycloakIdentityProviderRead(setDataFromIdentityProvider identityProviderDataSetterFunc) func(data *schema.ResourceData, meta interface{}) error {
-	return func(data *schema.ResourceData, meta interface{}) error {
+func resourceKeycloakIdentityProviderRead(setDataFromIdentityProvider identityProviderDataSetterFunc) func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	return func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
 		keycloakClient := meta.(*keycloak.KeycloakClient)
 		realm := data.Get("realm").(string)
 		alias := data.Get("alias").(string)
-		identityProvider, err := keycloakClient.GetIdentityProvider(realm, alias)
+		identityProvider, err := keycloakClient.GetIdentityProvider(ctx, realm, alias)
 		if err != nil {
-			return handleNotFoundError(err, data)
+			return handleNotFoundError(ctx, err, data)
 		}
-		if err = setDataFromIdentityProvider(data, identityProvider); err != nil {
-			return err
-		}
-		return nil
+
+		return diag.FromErr(setDataFromIdentityProvider(data, identityProvider))
 	}
 }
 
-func resourceKeycloakIdentityProviderUpdate(getIdentityProviderFromData identityProviderDataGetterFunc, setDataFromIdentityProvider identityProviderDataSetterFunc) func(data *schema.ResourceData, meta interface{}) error {
-	return func(data *schema.ResourceData, meta interface{}) error {
+func resourceKeycloakIdentityProviderUpdate(getIdentityProviderFromData identityProviderDataGetterFunc, setDataFromIdentityProvider identityProviderDataSetterFunc) func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
+	return func(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
 		keycloakClient := meta.(*keycloak.KeycloakClient)
 		identityProvider, err := getIdentityProviderFromData(data)
-		if err = keycloakClient.UpdateIdentityProvider(identityProvider); err != nil {
-			return err
+		if err != nil {
+			return diag.FromErr(err)
 		}
-		if err = setDataFromIdentityProvider(data, identityProvider); err != nil {
-			return err
+
+		err = keycloakClient.UpdateIdentityProvider(ctx, identityProvider)
+		if err != nil {
+			return diag.FromErr(err)
 		}
-		return nil
+
+		return diag.FromErr(setDataFromIdentityProvider(data, identityProvider))
 	}
 }

@@ -13,6 +13,8 @@ import (
 func TestAccKeycloakOpenidClientAuthorizationUserPolicy(t *testing.T) {
 	t.Parallel()
 	clientId := acctest.RandomWithPrefix("tf-acc")
+	username := acctest.RandomWithPrefix("tf-acc")
+	email := acctest.RandomWithPrefix("tf-acc") + "@fakedomain.com"
 
 	resource.Test(t, resource.TestCase{
 		ProviderFactories: testAccProviderFactories,
@@ -20,7 +22,7 @@ func TestAccKeycloakOpenidClientAuthorizationUserPolicy(t *testing.T) {
 		CheckDestroy:      testResourceKeycloakOpenidClientAuthorizationUserPolicyDestroy(),
 		Steps: []resource.TestStep{
 			{
-				Config: testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId),
+				Config: testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId, username, email),
 				Check:  testResourceKeycloakOpenidClientAuthorizationUserPolicyExists("keycloak_openid_client_user_policy.test"),
 			},
 		},
@@ -37,7 +39,7 @@ func getResourceKeycloakOpenidClientAuthorizationUserPolicyFromState(s *terrafor
 	resourceServerId := rs.Primary.Attributes["resource_server_id"]
 	policyId := rs.Primary.ID
 
-	policy, err := keycloakClient.GetOpenidClientAuthorizationUserPolicy(realm, resourceServerId, policyId)
+	policy, err := keycloakClient.GetOpenidClientAuthorizationUserPolicy(testCtx, realm, resourceServerId, policyId)
 	if err != nil {
 		return nil, fmt.Errorf("error getting openid client auth role policy config with alias %s: %s", resourceServerId, err)
 	}
@@ -56,7 +58,7 @@ func testResourceKeycloakOpenidClientAuthorizationUserPolicyDestroy() resource.T
 			resourceServerId := rs.Primary.Attributes["resource_server_id"]
 			policyId := rs.Primary.ID
 
-			policy, _ := keycloakClient.GetOpenidClientAuthorizationUserPolicy(realm, resourceServerId, policyId)
+			policy, _ := keycloakClient.GetOpenidClientAuthorizationUserPolicy(testCtx, realm, resourceServerId, policyId)
 			if policy != nil {
 				return fmt.Errorf("policy config with id %s still exists", policyId)
 			}
@@ -78,7 +80,7 @@ func testResourceKeycloakOpenidClientAuthorizationUserPolicyExists(resourceName 
 	}
 }
 
-func testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId string) string {
+func testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId, username, email string) string {
 	return fmt.Sprintf(`
 	data "keycloak_realm" "realm" {
 		realm = "%s"
@@ -96,9 +98,9 @@ func testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId stri
 
 	resource keycloak_user test {
 		realm_id = data.keycloak_realm.realm.id
-		username = "test-user"
+		username = "%s"
 
-		email      = "test-user@fakedomain.com"
+		email      = "%s"
 		first_name = "Testy"
 		last_name  = "Tester"
 	}
@@ -111,5 +113,5 @@ func testResourceKeycloakOpenidClientAuthorizationUserPolicy_basic(clientId stri
 		logic = "POSITIVE"
 		decision_strategy = "UNANIMOUS"
 	}
-	`, testAccRealm.Realm, clientId)
+	`, testAccRealm.Realm, clientId, username, email)
 }

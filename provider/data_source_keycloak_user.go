@@ -1,13 +1,16 @@
 package provider
 
 import (
+	"context"
+
+	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
 )
 
 func dataSourceKeycloakUser() *schema.Resource {
 	return &schema.Resource{
-		Read: dataSourceKeycloakUserRead,
+		ReadContext: dataSourceKeycloakUserRead,
 		Schema: map[string]*schema.Schema{
 			"realm_id": {
 				Type:     schema.TypeString,
@@ -37,16 +40,15 @@ func dataSourceKeycloakUser() *schema.Resource {
 				Type:     schema.TypeMap,
 				Computed: true,
 			},
-			"federated_identity": {
+			"required_actions": {
 				Type:     schema.TypeSet,
 				Elem:     &schema.Schema{Type: schema.TypeString},
 				Computed: true,
 			},
-			"federated_identities": {
-				Type:       schema.TypeSet,
-				Elem:       &schema.Schema{Type: schema.TypeString},
-				Computed:   true,
-				Deprecated: "use federated_identity instead",
+			"federated_identity": {
+				Type:     schema.TypeSet,
+				Elem:     &schema.Schema{Type: schema.TypeString},
+				Computed: true,
 			},
 			"enabled": {
 				Type:     schema.TypeBool,
@@ -56,30 +58,21 @@ func dataSourceKeycloakUser() *schema.Resource {
 	}
 }
 
-func dataSourceKeycloakUserRead(data *schema.ResourceData, meta interface{}) error {
+func dataSourceKeycloakUserRead(ctx context.Context, data *schema.ResourceData, meta interface{}) diag.Diagnostics {
 	keycloakClient := meta.(*keycloak.KeycloakClient)
 
 	realmID := data.Get("realm_id").(string)
 	username := data.Get("username").(string)
 
-	user, err := keycloakClient.GetUserByUsername(realmID, username)
+	user, err := keycloakClient.GetUserByUsername(ctx, realmID, username)
 	if err != nil {
-		return err
+		return diag.FromErr(err)
+	}
+	if user == nil {
+		return diag.Errorf("user with username %s not found", username)
 	}
 
 	mapFromUserToData(data, user)
-
-	// handling deprecated "federated_identities" attribute
-	federatedIdentities := []interface{}{}
-	for _, federatedIdentity := range user.FederatedIdentities {
-		identity := map[string]interface{}{
-			"identity_provider": federatedIdentity.IdentityProvider,
-			"user_id":           federatedIdentity.UserId,
-			"user_name":         federatedIdentity.UserName,
-		}
-		federatedIdentities = append(federatedIdentities, identity)
-	}
-	data.Set("federated_identities", federatedIdentities)
 
 	return nil
 }

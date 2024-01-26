@@ -1,7 +1,9 @@
 package keycloak
 
 import (
+	"context"
 	"fmt"
+	"github.com/mrparkers/terraform-provider-keycloak/keycloak/types"
 	"strings"
 )
 
@@ -59,6 +61,8 @@ type Realm struct {
 	OfflineSessionIdleTimeout           int    `json:"offlineSessionIdleTimeout,omitempty"`
 	OfflineSessionMaxLifespan           int    `json:"offlineSessionMaxLifespan,omitempty"`
 	OfflineSessionMaxLifespanEnabled    bool   `json:"offlineSessionMaxLifespanEnabled,omitempty"`
+	ClientSessionIdleTimeout            int    `json:"clientSessionIdleTimeout,omitempty"`
+	ClientSessionMaxLifespan            int    `json:"clientSessionMaxLifespan,omitempty"`
 	AccessTokenLifespan                 int    `json:"accessTokenLifespan,omitempty"`
 	AccessTokenLifespanForImplicitFlow  int    `json:"accessTokenLifespanForImplicitFlow,omitempty"`
 	AccessCodeLifespan                  int    `json:"accessCodeLifespan,omitempty"`
@@ -66,6 +70,8 @@ type Realm struct {
 	AccessCodeLifespanUserAction        int    `json:"accessCodeLifespanUserAction,omitempty"`
 	ActionTokenGeneratedByUserLifespan  int    `json:"actionTokenGeneratedByUserLifespan,omitempty"`
 	ActionTokenGeneratedByAdminLifespan int    `json:"actionTokenGeneratedByAdminLifespan,omitempty"`
+	Oauth2DeviceCodeLifespan            int    `json:"oauth2DeviceCodeLifespan,omitempty"`
+	Oauth2DevicePollingInterval         int    `json:"oauth2DevicePollingInterval,omitempty"`
 
 	//internationalization
 	InternationalizationEnabled bool     `json:"internationalizationEnabled"`
@@ -74,6 +80,10 @@ type Realm struct {
 
 	//extra attributes of a realm
 	Attributes map[string]interface{} `json:"attributes"`
+
+	// client-scope mapping defaults
+	DefaultDefaultClientScopes  []string `json:"defaultDefaultClientScopes,omitempty"`
+	DefaultOptionalClientScopes []string `json:"defaultOptionalClientScopes,omitempty"`
 
 	BrowserSecurityHeaders BrowserSecurityHeaders `json:"browserSecurityHeaders"`
 
@@ -89,12 +99,20 @@ type Realm struct {
 	PasswordPolicy string `json:"passwordPolicy"`
 
 	//flow bindings
-	BrowserFlow              string `json:"browserFlow,omitempty"`
-	RegistrationFlow         string `json:"registrationFlow,omitempty"`
-	DirectGrantFlow          string `json:"directGrantFlow,omitempty"`
-	ResetCredentialsFlow     string `json:"resetCredentialsFlow,omitempty"`
-	ClientAuthenticationFlow string `json:"clientAuthenticationFlow,omitempty"`
-	DockerAuthenticationFlow string `json:"dockerAuthenticationFlow,omitempty"`
+	BrowserFlow              *string `json:"browserFlow,omitempty"`
+	RegistrationFlow         *string `json:"registrationFlow,omitempty"`
+	DirectGrantFlow          *string `json:"directGrantFlow,omitempty"`
+	ResetCredentialsFlow     *string `json:"resetCredentialsFlow,omitempty"`
+	ClientAuthenticationFlow *string `json:"clientAuthenticationFlow,omitempty"`
+	DockerAuthenticationFlow *string `json:"dockerAuthenticationFlow,omitempty"`
+
+	// OTP Policy
+	OTPPolicyAlgorithm       string `json:"otpPolicyAlgorithm,omitempty"`
+	OTPPolicyDigits          int    `json:"otpPolicyDigits,omitempty"`
+	OTPPolicyInitialCounter  int    `json:"otpPolicyInitialCounter,omitempty"`
+	OTPPolicyLookAheadWindow int    `json:"otpPolicyLookAheadWindow,omitempty"`
+	OTPPolicyPeriod          int    `json:"otpPolicyPeriod,omitempty"`
+	OTPPolicyType            string `json:"otpPolicyType,omitempty"`
 
 	// WebAuthn
 	WebAuthnPolicyAcceptableAaguids               []string `json:"webAuthnPolicyAcceptableAaguids"`
@@ -119,6 +137,9 @@ type Realm struct {
 	WebAuthnPolicyPasswordlessRpId                            string   `json:"webAuthnPolicyPasswordlessRpId"`
 	WebAuthnPolicyPasswordlessSignatureAlgorithms             []string `json:"webAuthnPolicyPasswordlessSignatureAlgorithms"`
 	WebAuthnPolicyPasswordlessUserVerificationRequirement     string   `json:"webAuthnPolicyPasswordlessUserVerificationRequirement"`
+
+	// Roles
+	DefaultRole *Role `json:"defaultRole,omitempty"`
 }
 
 type BrowserSecurityHeaders struct {
@@ -129,43 +150,44 @@ type BrowserSecurityHeaders struct {
 	XFrameOptions                   string `json:"xFrameOptions"`
 	XRobotsTag                      string `json:"xRobotsTag"`
 	XXSSProtection                  string `json:"xXSSProtection"`
+	ReferrerPolicy                  string `json:"referrerPolicy"`
 }
 
 type SmtpServer struct {
-	StartTls           KeycloakBoolQuoted `json:"starttls,omitempty"`
-	Auth               KeycloakBoolQuoted `json:"auth,omitempty"`
-	Port               string             `json:"port,omitempty"`
-	Host               string             `json:"host,omitempty"`
-	ReplyTo            string             `json:"replyTo,omitempty"`
-	ReplyToDisplayName string             `json:"replyToDisplayName,omitempty"`
-	From               string             `json:"from,omitempty"`
-	FromDisplayName    string             `json:"fromDisplayName,omitempty"`
-	EnvelopeFrom       string             `json:"envelopeFrom,omitempty"`
-	Ssl                KeycloakBoolQuoted `json:"ssl,omitempty"`
-	User               string             `json:"user,omitempty"`
-	Password           string             `json:"password,omitempty"`
+	StartTls           types.KeycloakBoolQuoted `json:"starttls,omitempty"`
+	Auth               types.KeycloakBoolQuoted `json:"auth,omitempty"`
+	Port               string                   `json:"port,omitempty"`
+	Host               string                   `json:"host,omitempty"`
+	ReplyTo            string                   `json:"replyTo,omitempty"`
+	ReplyToDisplayName string                   `json:"replyToDisplayName,omitempty"`
+	From               string                   `json:"from,omitempty"`
+	FromDisplayName    string                   `json:"fromDisplayName,omitempty"`
+	EnvelopeFrom       string                   `json:"envelopeFrom,omitempty"`
+	Ssl                types.KeycloakBoolQuoted `json:"ssl,omitempty"`
+	User               string                   `json:"user,omitempty"`
+	Password           string                   `json:"password,omitempty"`
 }
 
-func (keycloakClient *KeycloakClient) NewRealm(realm *Realm) error {
-	_, _, err := keycloakClient.post("/realms", realm)
+func (keycloakClient *KeycloakClient) NewRealm(ctx context.Context, realm *Realm) error {
+	_, _, err := keycloakClient.post(ctx, "/realms", realm)
 
 	return err
 }
 
-func (keycloakClient *KeycloakClient) GetRealm(name string) (*Realm, error) {
+func (keycloakClient *KeycloakClient) GetRealm(ctx context.Context, name string) (*Realm, error) {
 	var realm Realm
 
-	err := keycloakClient.get(fmt.Sprintf("/realms/%s", name), &realm, nil)
+	err := keycloakClient.get(ctx, fmt.Sprintf("/realms/%s", name), &realm, nil)
 	if err != nil {
 		return nil, err
 	}
 	return &realm, nil
 }
 
-func (keycloakClient *KeycloakClient) GetRealms() ([]*Realm, error) {
+func (keycloakClient *KeycloakClient) GetRealms(ctx context.Context) ([]*Realm, error) {
 	var realms []*Realm
 
-	err := keycloakClient.get("/realms", &realms, nil)
+	err := keycloakClient.get(ctx, "/realms", &realms, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -173,10 +195,10 @@ func (keycloakClient *KeycloakClient) GetRealms() ([]*Realm, error) {
 	return realms, nil
 }
 
-func (keycloakClient *KeycloakClient) GetRealmKeys(name string) (*Keys, error) {
+func (keycloakClient *KeycloakClient) GetRealmKeys(ctx context.Context, name string) (*Keys, error) {
 	var keys Keys
 
-	err := keycloakClient.get(fmt.Sprintf("/realms/%s/keys", name), &keys, nil)
+	err := keycloakClient.get(ctx, fmt.Sprintf("/realms/%s/keys", name), &keys, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -184,21 +206,21 @@ func (keycloakClient *KeycloakClient) GetRealmKeys(name string) (*Keys, error) {
 	return &keys, nil
 }
 
-func (keycloakClient *KeycloakClient) UpdateRealm(realm *Realm) error {
-	return keycloakClient.put(fmt.Sprintf("/realms/%s", realm.Realm), realm)
+func (keycloakClient *KeycloakClient) UpdateRealm(ctx context.Context, realm *Realm) error {
+	return keycloakClient.put(ctx, fmt.Sprintf("/realms/%s", realm.Realm), realm)
 }
 
-func (keycloakClient *KeycloakClient) DeleteRealm(name string) error {
-	err := keycloakClient.delete(fmt.Sprintf("/realms/%s", name), nil)
+func (keycloakClient *KeycloakClient) DeleteRealm(ctx context.Context, name string) error {
+	err := keycloakClient.delete(ctx, fmt.Sprintf("/realms/%s", name), nil)
 	if err != nil {
 		// For whatever reason, this fails sometimes with a 500 during acceptance tests. try again
-		return keycloakClient.delete(fmt.Sprintf("/realms/%s", name), nil)
+		return keycloakClient.delete(ctx, fmt.Sprintf("/realms/%s", name), nil)
 	}
 
 	return nil
 }
 
-func (keycloakClient *KeycloakClient) ValidateRealm(realm *Realm) error {
+func (keycloakClient *KeycloakClient) ValidateRealm(ctx context.Context, realm *Realm) error {
 	if realm.DuplicateEmailsAllowed == true && realm.RegistrationEmailAsUsername == true {
 		return fmt.Errorf("validation error: DuplicateEmailsAllowed cannot be true if RegistrationEmailAsUsername is true")
 	}
@@ -212,7 +234,7 @@ func (keycloakClient *KeycloakClient) ValidateRealm(realm *Realm) error {
 	}
 
 	// validate if the given theme exists on the server. the keycloak API allows you to use any random string for a theme
-	serverInfo, err := keycloakClient.GetServerInfo()
+	serverInfo, err := keycloakClient.GetServerInfo(ctx)
 	if err != nil {
 		return err
 	}

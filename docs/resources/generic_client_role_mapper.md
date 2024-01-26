@@ -4,6 +4,8 @@ page_title: "keycloak_generic_client_role_mapper Resource"
 
 # keycloak\_generic\_client\_role\_mapper Resource
 
+!> **WARNING:** This resource is deprecated and will be removed in the next major version. Please use `keycloak_generic_role_mapper` instead.
+
 Allow for creating and managing a client's scope mappings within Keycloak.
 
 By default, all the user role mappings of the user are added as claims within the token (OIDC) or assertion (SAML). When
@@ -88,7 +90,7 @@ resource "keycloak_role" "client_role_b" {
 
 resource "keycloak_generic_client_role_mapper" "client_b_role_mapper" {
   realm_id  = keycloak_realm.realm.id
-  client_id = keycloak_client.client_b.id
+  client_id = keycloak_openid_client.client_b.id
   role_id   = keycloak_role.client_role_a.id
 }
 ```
@@ -151,7 +153,7 @@ resource "keycloak_openid_client_scope" "client_scope" {
 
 resource "keycloak_generic_client_role_mapper" "client_b_role_mapper" {
   realm_id        = keycloak_realm.realm.id
-  client_scope_id = keycloak_client_scope.client_scope.id
+  client_scope_id = keycloak_openid_client_scope.client_scope.id
   role_id         = keycloak_role.client_role.id
 }
 ```

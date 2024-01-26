@@ -6,8 +6,15 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
+	"regexp"
+	"strconv"
 	"testing"
 )
+
+/*
+	note: we cannot use parallel tests for this resource as only one instance of a google identity provider can be created
+	for a realm.
+*/
 
 func TestAccKeycloakOidcGoogleIdentityProvider_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
@@ -23,7 +30,7 @@ func TestAccKeycloakOidcGoogleIdentityProvider_basic(t *testing.T) {
 	})
 }
 
-func TestAccKeycloakOidcGoogleIdentityProvider_customConfig(t *testing.T) {
+func TestAccKeycloakOidcGoogleIdentityProvider_extraConfig(t *testing.T) {
 	customConfigValue := acctest.RandomWithPrefix("tf-acc")
 
 	resource.Test(t, resource.TestCase{
@@ -32,11 +39,28 @@ func TestAccKeycloakOidcGoogleIdentityProvider_customConfig(t *testing.T) {
 		CheckDestroy:      testAccCheckKeycloakOidcGoogleIdentityProviderDestroy(),
 		Steps: []resource.TestStep{
 			{
-				Config: testKeycloakOidcGoogleIdentityProvider_customConfig(customConfigValue),
+				Config: testKeycloakOidcGoogleIdentityProvider_customConfig("dummyConfig", customConfigValue),
 				Check: resource.ComposeTestCheckFunc(
 					testAccCheckKeycloakOidcGoogleIdentityProviderExists("keycloak_oidc_google_identity_provider.google_custom"),
 					testAccCheckKeycloakOidcGoogleIdentityProviderHasCustomConfigValue("keycloak_oidc_google_identity_provider.google_custom", customConfigValue),
 				),
+			},
+		},
+	})
+}
+
+// ensure that extra_config keys which are covered by top-level attributes are not allowed
+func TestAccKeycloakOidcGoogleIdentityProvider_extraConfigInvalid(t *testing.T) {
+	customConfigValue := acctest.RandomWithPrefix("tf-acc")
+
+	resource.Test(t, resource.TestCase{
+		ProviderFactories: testAccProviderFactories,
+		PreCheck:          func() { testAccPreCheck(t) },
+		CheckDestroy:      testAccCheckKeycloakOidcGoogleIdentityProviderDestroy(),
+		Steps: []resource.TestStep{
+			{
+				Config:      testKeycloakOidcGoogleIdentityProvider_customConfig("syncMode", customConfigValue),
+				ExpectError: regexp.MustCompile("extra_config key \"syncMode\" is not allowed"),
 			},
 		},
 	})
@@ -56,7 +80,7 @@ func TestAccKeycloakOidcGoogleIdentityProvider_createAfterManualDestroy(t *testi
 			},
 			{
 				PreConfig: func() {
-					err := keycloakClient.DeleteIdentityProvider(idp.Realm, idp.Alias)
+					err := keycloakClient.DeleteIdentityProvider(testCtx, idp.Realm, idp.Alias)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -79,6 +103,8 @@ func TestAccKeycloakOidcGoogleIdentityProvider_basicUpdateAll(t *testing.T) {
 			AcceptsPromptNoneForwFrmClt: false,
 			ClientId:                    acctest.RandString(10),
 			ClientSecret:                acctest.RandString(10),
+			GuiOrder:                    strconv.Itoa(acctest.RandIntRange(1, 3)),
+			SyncMode:                    randomStringInSlice(syncModes),
 		},
 	}
 
@@ -90,6 +116,8 @@ func TestAccKeycloakOidcGoogleIdentityProvider_basicUpdateAll(t *testing.T) {
 			AcceptsPromptNoneForwFrmClt: false,
 			ClientId:                    acctest.RandString(10),
 			ClientSecret:                acctest.RandString(10),
+			GuiOrder:                    strconv.Itoa(acctest.RandIntRange(1, 3)),
+			SyncMode:                    randomStringInSlice(syncModes),
 		},
 	}
 
@@ -160,7 +188,7 @@ func testAccCheckKeycloakOidcGoogleIdentityProviderDestroy() resource.TestCheckF
 			id := rs.Primary.ID
 			realm := rs.Primary.Attributes["realm"]
 
-			idp, _ := keycloakClient.GetIdentityProvider(realm, id)
+			idp, _ := keycloakClient.GetIdentityProvider(testCtx, realm, id)
 			if idp != nil {
 				return fmt.Errorf("oidc config with id %s still exists", id)
 			}
@@ -179,7 +207,7 @@ func getKeycloakOidcGoogleIdentityProviderFromState(s *terraform.State, resource
 	realm := rs.Primary.Attributes["realm"]
 	alias := rs.Primary.Attributes["alias"]
 
-	idp, err := keycloakClient.GetIdentityProvider(realm, alias)
+	idp, err := keycloakClient.GetIdentityProvider(testCtx, realm, alias)
 	if err != nil {
 		return nil, fmt.Errorf("error getting oidc identity provider config with alias %s: %s", alias, err)
 	}
@@ -201,7 +229,7 @@ resource "keycloak_oidc_google_identity_provider" "google" {
 	`, testAccRealm.Realm)
 }
 
-func testKeycloakOidcGoogleIdentityProvider_customConfig(customConfigValue string) string {
+func testKeycloakOidcGoogleIdentityProvider_customConfig(configKey, configValue string) string {
 	return fmt.Sprintf(`
 data "keycloak_realm" "realm" {
 	realm = "%s"
@@ -213,10 +241,10 @@ resource "keycloak_oidc_google_identity_provider" "google_custom" {
 	client_id         = "example_id"
 	client_secret     = "example_token"
 	extra_config      = {
-		dummyConfig = "%s"
+		%s = "%s"
 	}
 }
-	`, testAccRealm.Realm, customConfigValue)
+	`, testAccRealm.Realm, configKey, configValue)
 }
 
 func testKeycloakOidcGoogleIdentityProvider_basicFromInterface(idp *keycloak.IdentityProvider) string {
@@ -232,6 +260,8 @@ resource "keycloak_oidc_google_identity_provider" "google" {
 	accepts_prompt_none_forward_from_client	= %t
 	client_id         						= "%s"
 	client_secret     						= "%s"
+	gui_order                               = %s
+	sync_mode                               = "%s"
 }
-	`, testAccRealm.Realm, idp.Enabled, idp.Config.HostedDomain, idp.Config.AcceptsPromptNoneForwFrmClt, idp.Config.ClientId, idp.Config.ClientSecret)
+	`, testAccRealm.Realm, idp.Enabled, idp.Config.HostedDomain, idp.Config.AcceptsPromptNoneForwFrmClt, idp.Config.ClientId, idp.Config.ClientSecret, idp.Config.GuiOrder, idp.Config.SyncMode)
 }

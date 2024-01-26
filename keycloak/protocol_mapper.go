@@ -1,6 +1,9 @@
 package keycloak
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // https://www.keycloak.org/docs-api/4.2/rest-api/index.html#_protocolmapperrepresentation
 type protocolMapper struct {
@@ -25,7 +28,9 @@ var (
 	includedClientAudienceField          = "included.client.audience"
 	includedCustomAudienceField          = "included.custom.audience"
 	multivaluedField                     = "multivalued"
+	samlScriptField                      = "Script" // needs to start with uppercase S for SAML script mapper
 	scriptField                          = "script"
+	singleValueAttributeField            = "single"
 	userAttributeField                   = "user.attribute"
 	userPropertyField                    = "user.attribute"
 	userRealmRoleMappingRolePrefixField  = "usermodel.realmRoleMapping.rolePrefix"
@@ -51,10 +56,10 @@ func individualProtocolMapperPath(realmId, clientId, clientScopeId, mapperId str
 	return fmt.Sprintf("%s/%s", protocolMapperPath(realmId, clientId, clientScopeId), mapperId)
 }
 
-func (keycloakClient *KeycloakClient) listGenericProtocolMappers(realmId, clientId, clientScopeId string) ([]*protocolMapper, error) {
+func (keycloakClient *KeycloakClient) listGenericProtocolMappers(ctx context.Context, realmId, clientId, clientScopeId string) ([]*protocolMapper, error) {
 	var protocolMappers []*protocolMapper
 
-	err := keycloakClient.get(protocolMapperPath(realmId, clientId, clientScopeId), &protocolMappers, nil)
+	err := keycloakClient.get(ctx, protocolMapperPath(realmId, clientId, clientScopeId), &protocolMappers, nil)
 	if err != nil {
 		return nil, err
 	}

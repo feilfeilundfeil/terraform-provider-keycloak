@@ -12,14 +12,15 @@ import (
 
 func TestAccKeycloakUsersPermission_basic(t *testing.T) {
 	realmName := acctest.RandomWithPrefix("tf-acc")
+	username := acctest.RandomWithPrefix("tf-acc")
+	email := acctest.RandomWithPrefix("tf-acc") + "@fakedomain.com"
 
 	resource.Test(t, resource.TestCase{
 		ProviderFactories: testAccProviderFactories,
 		PreCheck:          func() { testAccPreCheck(t) },
-		CheckDestroy:      testAccCheckKeycloakUsersPermissionsAreDisabled(realmName),
 		Steps: []resource.TestStep{
 			{
-				Config: testKeycloakUsersPermission_basic(realmName),
+				Config: testKeycloakUsersPermission_basic(realmName, username, email),
 				Check:  testAccCheckKeycloakUsersPermissionExists("keycloak_users_permissions.my_permission"),
 			},
 			{
@@ -27,6 +28,11 @@ func TestAccKeycloakUsersPermission_basic(t *testing.T) {
 				ImportState:       true,
 				ImportStateVerify: true,
 				ImportStateId:     realmName,
+			},
+			// check destroy
+			{
+				Config: testKeycloakUsersPermission_checkDestroy(realmName, username, email),
+				Check:  testAccCheckKeycloakUsersPermissionsAreDisabled(realmName),
 			},
 		},
 	})
@@ -46,7 +52,7 @@ func testAccCheckKeycloakUsersPermissionExists(resourceName string) resource.Tes
 		authorizationResourceServerId := rs.Primary.Attributes["authorization_resource_server_id"]
 
 		var realmManagementId string
-		clients, _ := keycloakClient.GetOpenidClients(permissions.RealmId, false)
+		clients, _ := keycloakClient.GetOpenidClients(testCtx, permissions.RealmId, false)
 		for _, client := range clients {
 			if client.ClientId == "realm-management" {
 				realmManagementId = client.Id
@@ -62,7 +68,7 @@ func testAccCheckKeycloakUsersPermissionExists(resourceName string) resource.Tes
 		viewScopeDescription := rs.Primary.Attributes["view_scope.0.description"]
 		viewScopeDecisionStrategy := rs.Primary.Attributes["view_scope.0.decision_strategy"]
 
-		authzClientView, err := keycloakClient.GetOpenidClientAuthorizationPermission(permissions.RealmId, realmManagementId, permissions.ScopePermissions["view"].(string))
+		authzClientView, err := keycloakClient.GetOpenidClientAuthorizationPermission(testCtx, permissions.RealmId, realmManagementId, permissions.ScopePermissions["view"])
 		if err != nil {
 			return err
 		}
@@ -80,7 +86,7 @@ func testAccCheckKeycloakUsersPermissionExists(resourceName string) resource.Tes
 			return fmt.Errorf("decision strategy %s was not equal to %s", authzClientView.DecisionStrategy, viewScopeDecisionStrategy)
 		}
 
-		authzClientManage, err := keycloakClient.GetOpenidClientAuthorizationPermission(permissions.RealmId, realmManagementId, permissions.ScopePermissions["manage"].(string))
+		authzClientManage, err := keycloakClient.GetOpenidClientAuthorizationPermission(testCtx, permissions.RealmId, realmManagementId, permissions.ScopePermissions["manage"])
 		if err != nil {
 			return err
 		}
@@ -110,7 +116,7 @@ func testAccCheckKeycloakUsersPermissionExists(resourceName string) resource.Tes
 
 func testAccCheckKeycloakUsersPermissionsAreDisabled(realmId string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
-		permissions, err := keycloakClient.GetUsersPermissions(realmId)
+		permissions, err := keycloakClient.GetUsersPermissions(testCtx, realmId)
 		if err != nil {
 			return fmt.Errorf("error getting users permissions with realm id %s: %s", realmId, err)
 		}
@@ -131,7 +137,7 @@ func getUsersPermissionsFromState(s *terraform.State, resourceName string) (*key
 
 	realmId := rs.Primary.Attributes["realm_id"]
 
-	permissions, err := keycloakClient.GetUsersPermissions(realmId)
+	permissions, err := keycloakClient.GetUsersPermissions(testCtx, realmId)
 	if err != nil {
 		return nil, fmt.Errorf("error getting users permissions with realm id %s: %s", realmId, err)
 
@@ -139,7 +145,7 @@ func getUsersPermissionsFromState(s *terraform.State, resourceName string) (*key
 	return permissions, nil
 }
 
-func testKeycloakUsersPermission_basic(realmId string) string {
+func testKeycloakUsersPermission_basic(realmId, username, email string) string {
 	return fmt.Sprintf(`
 resource "keycloak_realm" "realm" {
 	realm = "%s"
@@ -157,9 +163,9 @@ resource "keycloak_openid_client_permissions" "realm_management_permission" {
 
 resource "keycloak_user" "test" {
 	realm_id = keycloak_realm.realm.id
-	username = "test-user"
+	username = "%s"
 
-	email      = "test-user@fakedomain.com"
+	email      = "%s"
 	first_name = "Testy"
 	last_name  = "Tester"
 }
@@ -215,5 +221,63 @@ resource "keycloak_users_permissions" "my_permission" {
 		decision_strategy = "UNANIMOUS"
 	}
 }
-	`, realmId)
+	`, realmId, username, email)
+}
+
+func testKeycloakUsersPermission_checkDestroy(realmId, username, email string) string {
+	return fmt.Sprintf(`
+resource "keycloak_realm" "realm" {
+	realm = "%s"
+}
+
+data "keycloak_openid_client" "realm_management" {
+	realm_id  = keycloak_realm.realm.id
+	client_id = "realm-management"
+}
+
+resource "keycloak_openid_client_permissions" "realm_management_permission" {
+	realm_id   = keycloak_realm.realm.id
+	client_id  = data.keycloak_openid_client.realm_management.id
+}
+
+resource "keycloak_user" "test" {
+	realm_id = keycloak_realm.realm.id
+	username = "%s"
+
+	email      = "%s"
+	first_name = "Testy"
+	last_name  = "Tester"
+}
+
+resource "keycloak_openid_client_user_policy" "test" {
+	realm_id           = keycloak_realm.realm.id
+	resource_server_id = data.keycloak_openid_client.realm_management.id
+	name               = "client_user_policy_test"
+
+	users             = [
+		keycloak_user.test.id
+	]
+	logic             = "POSITIVE"
+	decision_strategy = "UNANIMOUS"
+
+	depends_on = [
+		keycloak_openid_client_permissions.realm_management_permission,
+	]
+}
+resource "keycloak_openid_client_user_policy" "test2" {
+	realm_id           = keycloak_realm.realm.id
+	resource_server_id = data.keycloak_openid_client.realm_management.id
+	name               = "client_user_policy_test2"
+
+	users             = [
+		keycloak_user.test.id
+	]
+	logic             = "POSITIVE"
+	decision_strategy = "UNANIMOUS"
+
+	depends_on = [
+		keycloak_openid_client_permissions.realm_management_permission,
+	]
+}
+	`, realmId, username, email)
 }
