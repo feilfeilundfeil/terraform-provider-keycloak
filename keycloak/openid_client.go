@@ -63,8 +63,8 @@ type OpenidClientAttributes struct {
 	ExcludeSessionStateFromAuthResponse   types.KeycloakBoolQuoted         `json:"exclude.session.state.from.auth.response"`
 	AccessTokenLifespan                   string                           `json:"access.token.lifespan"`
 	LoginTheme                            string                           `json:"login_theme"`
-	FromClient                          string             `json:"fromClient"`
-	FromTenant                          string             `json:"fromTenant"`
+	FromClient                            string                           `json:"fromClient"`
+	FromTenant                            string                           `json:"fromTenant"`
 	ClientOfflineSessionIdleTimeout       string                           `json:"client.offline.session.idle.timeout,omitempty"`
 	DisplayOnConsentScreen                types.KeycloakBoolQuoted         `json:"display.on.consent.screen"`
 	ConsentScreenText                     string                           `json:"consent.screen.text"`
