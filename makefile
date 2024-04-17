@@ -4,7 +4,8 @@ GOARCH?=arm64
 
 MAKEFLAGS += --silent
 
-VERSION=$$(git describe --tags)
+# Official version is 4.4.0 - ffuf version 4.4.1
+VERSION=4.4.1
 
 NAME=keycloak
 BINARY=terraform-provider-${NAME}_${VERSION}
