@@ -2,7 +2,9 @@ package provider
 
 import (
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/imdario/mergo"
 	"github.com/mrparkers/terraform-provider-keycloak/keycloak"
+	"github.com/mrparkers/terraform-provider-keycloak/keycloak/types"
 )
 
 func resourceKeycloakOidcGoogleIdentityProvider() *schema.Resource {
@@ -75,44 +77,38 @@ func resourceKeycloakOidcGoogleIdentityProvider() *schema.Resource {
 			Default:     false,
 			Description: "Hide On Login Page.",
 		},
-		"extra_config": {
-			Type:     schema.TypeMap,
-			Optional: true,
-		},
 	}
 	oidcResource := resourceKeycloakIdentityProvider()
 	oidcResource.Schema = mergeSchemas(oidcResource.Schema, oidcGoogleSchema)
-	oidcResource.Create = resourceKeycloakIdentityProviderCreate(getOidcGoogleIdentityProviderFromData, setOidcGoogleIdentityProviderData)
-	oidcResource.Read = resourceKeycloakIdentityProviderRead(setOidcGoogleIdentityProviderData)
-	oidcResource.Update = resourceKeycloakIdentityProviderUpdate(getOidcGoogleIdentityProviderFromData, setOidcGoogleIdentityProviderData)
+	oidcResource.CreateContext = resourceKeycloakIdentityProviderCreate(getOidcGoogleIdentityProviderFromData, setOidcGoogleIdentityProviderData)
+	oidcResource.ReadContext = resourceKeycloakIdentityProviderRead(setOidcGoogleIdentityProviderData)
+	oidcResource.UpdateContext = resourceKeycloakIdentityProviderUpdate(getOidcGoogleIdentityProviderFromData, setOidcGoogleIdentityProviderData)
 	return oidcResource
 }
 
 func getOidcGoogleIdentityProviderFromData(data *schema.ResourceData) (*keycloak.IdentityProvider, error) {
-	rec, _ := getIdentityProviderFromData(data)
+	rec, defaultConfig := getIdentityProviderFromData(data)
 	rec.ProviderId = data.Get("provider_id").(string)
 	rec.Alias = "google"
 
-	extraConfig := map[string]interface{}{}
-	if v, ok := data.GetOk("extra_config"); ok {
-		for key, value := range v.(map[string]interface{}) {
-			extraConfig[key] = value
-		}
-	}
-
-	rec.Config = &keycloak.IdentityProviderConfig{
+	googleOidcIdentityProviderConfig := &keycloak.IdentityProviderConfig{
 		ClientId:                    data.Get("client_id").(string),
 		ClientSecret:                data.Get("client_secret").(string),
-		HideOnLoginPage:             keycloak.KeycloakBoolQuoted(data.Get("hide_on_login_page").(bool)),
+		HideOnLoginPage:             types.KeycloakBoolQuoted(data.Get("hide_on_login_page").(bool)),
 		HostedDomain:                data.Get("hosted_domain").(string),
-		UserIp:                      keycloak.KeycloakBoolQuoted(data.Get("use_user_ip_param").(bool)),
-		OfflineAccess:               keycloak.KeycloakBoolQuoted(data.Get("request_refresh_token").(bool)),
+		UserIp:                      types.KeycloakBoolQuoted(data.Get("use_user_ip_param").(bool)),
+		OfflineAccess:               types.KeycloakBoolQuoted(data.Get("request_refresh_token").(bool)),
 		DefaultScope:                data.Get("default_scopes").(string),
-		AcceptsPromptNoneForwFrmClt: keycloak.KeycloakBoolQuoted(data.Get("accepts_prompt_none_forward_from_client").(bool)),
-		ExtraConfig:                 extraConfig,
+		AcceptsPromptNoneForwFrmClt: types.KeycloakBoolQuoted(data.Get("accepts_prompt_none_forward_from_client").(bool)),
 		UseJwksUrl:                  true,
-		DisableUserInfo:             keycloak.KeycloakBoolQuoted(data.Get("disable_user_info").(bool)),
+		DisableUserInfo:             types.KeycloakBoolQuoted(data.Get("disable_user_info").(bool)),
 	}
+
+	if err := mergo.Merge(googleOidcIdentityProviderConfig, defaultConfig); err != nil {
+		return nil, err
+	}
+
+	rec.Config = googleOidcIdentityProviderConfig
 
 	return rec, nil
 }
@@ -127,7 +123,6 @@ func setOidcGoogleIdentityProviderData(data *schema.ResourceData, identityProvid
 	data.Set("request_refresh_token", identityProvider.Config.OfflineAccess)
 	data.Set("default_scopes", identityProvider.Config.DefaultScope)
 	data.Set("accepts_prompt_none_forward_from_client", identityProvider.Config.AcceptsPromptNoneForwFrmClt)
-	data.Set("extra_config", identityProvider.Config.ExtraConfig)
 	data.Set("disable_user_info", identityProvider.Config.DisableUserInfo)
 	return nil
 }
